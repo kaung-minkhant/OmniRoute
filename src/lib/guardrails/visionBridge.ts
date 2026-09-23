@@ -297,6 +297,7 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
     // Declare before the conditional so they're available to the rest of preCall
     let forceVisionBridge = false;
     let comboVisionBridgeDecision: ComboVisionBridgeDecision | undefined;
+    let targetSupportsVisionNatively = false;
 
     if (!isAuto) {
       forceVisionBridge = isVisionBridgeForcedModel(model);
@@ -311,21 +312,7 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
             : "skip"
           : await getComboVisionBridgeDecision(model);
 
-      if (comboVisionBridgeDecision === "skip") {
-        return { block: false };
-      }
-
-      if (capabilities?.supportsVision === true && !forceVisionBridge) {
-        // The request model supports vision natively, but check if a
-        // model-combo mapping routes this model through a combo where
-        // some targets may NOT support vision. In that case, the vision
-        // bridge must process images so combo targets can describe them.
-        if (comboVisionBridgeDecision !== "process" && comboVisionBridgeDecision !== "no-vision") {
-          context.log?.debug?.("VISION_BRIDGE", "Skipping: target model supports vision natively");
-          return { block: false };
-        }
-        // Combo mapping found — fall through to process images
-      }
+      targetSupportsVisionNatively = capabilities?.supportsVision === true && !forceVisionBridge;
     }
     // For auto models (isAuto=true), force remains false and combo decision
     // remains undefined, which makes the reroute check on line ~189 treat it
@@ -366,6 +353,24 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
     const imageParts = extractImageParts(messages as Parameters<typeof extractImageParts>[0]);
     if (imageParts.length === 0) {
       return { block: false };
+    }
+
+    // "Always describe" must be authoritative even for native-vision models or
+    // all-vision combos. Older ordering skipped here before reading runtime.mode,
+    // so a configured describe bridge could still pass raw images downstream.
+    if (runtime.mode !== "describe") {
+      if (comboVisionBridgeDecision === "skip") {
+        return { block: false };
+      }
+
+      if (
+        targetSupportsVisionNatively &&
+        comboVisionBridgeDecision !== "process" &&
+        comboVisionBridgeDecision !== "no-vision"
+      ) {
+        context.log?.debug?.("VISION_BRIDGE", "Skipping: target model supports vision natively");
+        return { block: false };
+      }
     }
 
     // 9. Individual non-combo model with images → optionally REROUTE to best vision-capable model
