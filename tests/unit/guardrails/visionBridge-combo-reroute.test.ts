@@ -97,6 +97,27 @@ function createGuardrail(depsOverrides = {}, prompt = "Describe this image conci
   });
 }
 
+function createDescribeModeGuardrail(
+  depsOverrides = {},
+  prompt = "Describe this image concisely."
+) {
+  return new VisionBridgeGuardrail({
+    deps: {
+      getSettings: async () => ({
+        ...mockSettings,
+        modalityBridgeVisionMode: "describe",
+        visionBridgePrompt: prompt,
+      }),
+      callVisionModel: async () => {
+        visionCallCount++;
+        return "A red circle on a white background";
+      },
+      hasUsableCredentials: async () => true,
+      ...depsOverrides,
+    },
+  });
+}
+
 const IMAGE_PAYLOAD = {
   model: "text-only-combo",
   messages: [
@@ -301,6 +322,33 @@ test("preCall: all-vision combo still skips the bridge entirely", async () => {
   assert.equal(result.block, false);
   assert.equal(result.modifiedPayload, undefined);
   assert.equal(visionCallCount, 0);
+});
+
+test("preCall: describe mode processes an all-vision combo instead of early-skipping", async () => {
+  resetGuardrailsForTests({ registerDefaults: false });
+  await createCombo("vision-combo", [{ provider: "openai", model: VISION_MODEL }]);
+  visionCallCount = 0;
+  const guardrail = createDescribeModeGuardrail({}, "Describe the all-vision combo image.");
+  const result = await guardrail.preCall({ ...IMAGE_PAYLOAD, model: "vision-combo" }, {});
+
+  assert.equal(result.block, false);
+  assert.equal(result.meta.rerouted, undefined);
+  assert.equal(asModifiedBody(result).model, "vision-combo");
+  assert.equal(hasImagePart(asModifiedBody(result).messages), false);
+  assert.equal(visionCallCount, 1);
+});
+
+test("preCall: describe mode processes native vision models instead of early-skipping", async () => {
+  resetGuardrailsForTests({ registerDefaults: false });
+  visionCallCount = 0;
+  const guardrail = createDescribeModeGuardrail({}, "Describe the native vision image.");
+  const result = await guardrail.preCall({ ...IMAGE_PAYLOAD, model: VISION_MODEL }, {});
+
+  assert.equal(result.block, false);
+  assert.equal(result.meta.rerouted, undefined);
+  assert.equal(asModifiedBody(result).model, VISION_MODEL);
+  assert.equal(hasImagePart(asModifiedBody(result).messages), false);
+  assert.equal(visionCallCount, 1);
 });
 
 test("preCall: mixed combo keeps the describe path (no reroute, model unchanged)", async () => {
