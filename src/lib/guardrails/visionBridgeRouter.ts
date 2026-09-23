@@ -87,6 +87,21 @@ const selectionCache = new Map<string, { modelId: string; expiresAt: number }>()
 const noCandidateCache = new Map<string, number>();
 
 /**
+ * Vision model settings can be saved from catalog mirror ids such as
+ * `claude/cc/claude-sonnet-5` (Claude Code discovery alias). The router and
+ * credential checker need the real provider/model id, not the mirror wrapper.
+ */
+export function normalizeFixedVisionBridgeModel(model: string | undefined): string | undefined {
+  if (!model || typeof model !== "string") return model;
+  const trimmed = model.trim();
+  const parts = trimmed.split("/");
+  if (parts.length < 3 || parts[0] !== "claude" || parts[1] === "combo") return trimmed;
+
+  const provider = resolveProviderId(parts[1]);
+  return `${provider}/${parts.slice(2).join("/")}`;
+}
+
+/**
  * Record a latency measurement for a model.
  */
 export function recordLatency(modelId: string, latencyMs: number, success: boolean): void {
@@ -434,7 +449,11 @@ export async function getBestVisionModel(
   config: Partial<VisionBridgeRouterConfig> = {},
   deps: VisionBridgeRouterDeps = {}
 ): Promise<string | null> {
-  const fullConfig = { ...DEFAULT_ROUTER_CONFIG, ...config };
+  const fullConfig = {
+    ...DEFAULT_ROUTER_CONFIG,
+    ...config,
+    fixedModel: normalizeFixedVisionBridgeModel(config.fixedModel),
+  };
   const virtualCombo = resolveVirtualCombo(fullConfig.fixedModel);
 
   // If fixed model is configured, validate it has usable credentials first.

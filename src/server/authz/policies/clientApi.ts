@@ -1,5 +1,6 @@
 import { isDashboardSessionAuthenticated } from "@/shared/utils/apiAuth.ts";
 import { isRequireApiKeyEnabled } from "@/shared/utils/featureFlags";
+import { isInternalAdmissionBypass } from "@/shared/middleware/chatAdmissionIdentity";
 import { extractApiKey } from "@/sse/services/auth.ts";
 import { extractGoogApiKeyHeader } from "@/sse/services/googApiKeyAuth.ts";
 import type { AuthOutcome, PolicyContext, RoutePolicy } from "../context";
@@ -58,6 +59,15 @@ export const clientApiPolicy: RoutePolicy = {
   routeClass: "CLIENT_API",
   async evaluate(ctx: PolicyContext): Promise<AuthOutcome> {
     const bearer = extractBearer(ctx.request as Request);
+
+    // Vision/audio self-loop calls use a process-local bearer to bypass the
+    // parent's heavyweight admission lease. It is intentionally not stored in
+    // the API-key table; the admission identity check authenticates the secret
+    // and only accepts it with the internal bypass header.
+    if (isInternalAdmissionBypass(ctx.request as Request)) {
+      return allow({ kind: "internal", id: "self-loop" });
+    }
+
     if (!bearer) {
       // The WS descriptor handshake is a metadata read; the route handler
       // performs the actual wsAuth/dashboard/API-key decision and returns the
