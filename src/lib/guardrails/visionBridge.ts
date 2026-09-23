@@ -121,17 +121,26 @@ export async function getComboVisionBridgeDecision(
   model: string
 ): Promise<ComboVisionBridgeDecision> {
   try {
-    const { getComboByName } = await import("@/lib/db/combos");
+    const { getComboById, getComboByName, getComboByNameInsensitive } =
+      await import("@/lib/db/combos");
     const { resolveComboForModel } = await import("@/lib/db/modelComboMappings");
 
-    // 1. Try to find combo by exact name match. The normal Combo resolver also
-    // accepts `combo/<name>` for combos stored under their bare name; keep the
-    // Vision Bridge capability check on the same lookup path.
-    let combo = await getComboByName(model);
+    const findCombo = async (name: string) => {
+      // Keep parity with src/sse/services/model.ts::getCombo so the guardrail
+      // recognizes the same combo ids the actual router will dispatch.
+      let combo = await getComboByName(name);
+      if (combo) return combo;
+      if (name.startsWith("combo/")) {
+        combo = await getComboByName(name.slice("combo/".length));
+        if (combo) return combo;
+      }
+      combo = await getComboById(name);
+      if (combo) return combo;
+      return getComboByNameInsensitive(name);
+    };
 
-    if (!combo && model.startsWith("combo/")) {
-      combo = await getComboByName(model.slice("combo/".length));
-    }
+    // 1. Try to find combo by exact name/router-compatible fallbacks
+    let combo = await findCombo(model);
 
     // 2. If no exact match, try model-combo mapping
     if (!combo) {
@@ -139,7 +148,7 @@ export async function getComboVisionBridgeDecision(
       if (!mapping) return "not-combo";
       const comboName = resolveVisionComboName(mapping);
       if (!comboName) return "not-combo";
-      combo = await getComboByName(comboName);
+      combo = await findCombo(comboName);
     }
 
     if (!combo) return "not-combo";

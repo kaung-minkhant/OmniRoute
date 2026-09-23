@@ -136,6 +136,11 @@ test("decision: combo with zero vision-capable targets returns 'no-vision'", asy
   assert.equal(await getComboVisionBridgeDecision("text-only-combo"), "no-vision");
 });
 
+test("decision: combo/ prefixed combo with zero vision-capable targets returns 'no-vision'", async () => {
+  await createCombo("text-gen", [{ provider: "google", model: TEXT_MODEL_A }]);
+  assert.equal(await getComboVisionBridgeDecision("combo/text-gen"), "no-vision");
+});
+
 test("decision: combo with all vision-capable targets returns 'skip'", async () => {
   await createCombo("vision-combo", [
     { provider: "openai", model: VISION_MODEL },
@@ -211,6 +216,26 @@ test("preCall: zero-vision combo falls back to describe when reroute target is u
   assert.equal(result.meta.rerouted, undefined);
   // Images replaced with the described text; combo model kept.
   assert.equal(asModifiedBody(result).model, "text-only-combo");
+  assert.equal(hasImagePart(asModifiedBody(result).messages), false);
+  assert.equal(visionCallCount, 1);
+});
+
+test("preCall: combo/ prefixed zero-vision combo falls back to describe", async () => {
+  resetGuardrailsForTests({ registerDefaults: false });
+  await createCombo("text-gen", [{ provider: "google", model: TEXT_MODEL_A }]);
+  visionCallCount = 0;
+  const guardrail = createGuardrail(
+    { hasUsableCredentials: async () => false },
+    "Describe the combo-prefixed image."
+  );
+  const result = await guardrail.preCall(
+    { ...IMAGE_PAYLOAD, model: "combo/text-gen" },
+    { model: "combo/text-gen" }
+  );
+
+  assert.equal(result.block, false);
+  assert.equal(result.meta.rerouted, undefined);
+  assert.equal(asModifiedBody(result).model, "combo/text-gen");
   assert.equal(hasImagePart(asModifiedBody(result).messages), false);
   assert.equal(visionCallCount, 1);
 });
