@@ -185,6 +185,22 @@ test("clientApiPolicy: invalid bearer is rejected with 401", async () => {
   }
 });
 
+test("clientApiPolicy: accepts the authenticated internal self-loop bypass bearer", async () => {
+  process.env.OMNIROUTE_API_KEY = "process-local-self-loop-key";
+
+  const policy = await loadPolicy();
+  const headers = new Headers({
+    authorization: "Bearer process-local-self-loop-key",
+    "x-omniroute-admission-bypass": "internal",
+  });
+  const out = await policy.evaluate(ctx(headers));
+
+  assert.equal(out.allow, true);
+  if (out.allow) {
+    assert.deepEqual(out.subject, { kind: "internal", id: "self-loop" });
+  }
+});
+
 test("clientApiPolicy: valid bearer is accepted as client_api_key subject", async () => {
   const created = await apiKeysDb.createApiKey("policy-test-key", "machine-test-1234");
   assert.ok(created?.key, "createApiKey must return a key");

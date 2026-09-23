@@ -23,6 +23,7 @@ const {
   recordLatency,
   clearSelectionCache,
   getLatencyStats,
+  normalizeFixedVisionBridgeModel,
 } = await import("../../../src/lib/guardrails/visionBridgeRouter.ts");
 const { PROVIDER_MODELS } = await import("../../../open-sse/config/providerModels.ts");
 const { lockModel, clearAllModelLockouts, isModelLocked } =
@@ -70,6 +71,27 @@ test("getBestVisionModel — should respect fixed model override", async () => {
   const fixedModel = "openai/gpt-4o-mini";
   const model = await getBestVisionModel({ fixedModel }, FAIL_OPEN_DEPS);
   assert.equal(model, fixedModel);
+});
+
+test("getBestVisionModel — normalizes Claude Code discovery aliases used as fixed models", async () => {
+  assert.equal(
+    normalizeFixedVisionBridgeModel("claude/cc/claude-sonnet-5"),
+    "claude/claude-sonnet-5"
+  );
+
+  const seen: string[] = [];
+  const model = await getBestVisionModel(
+    { fixedModel: "claude/cc/claude-sonnet-5" },
+    {
+      hasUsableCredentials: async (fullModelId) => {
+        seen.push(fullModelId);
+        return fullModelId === "claude/claude-sonnet-5";
+      },
+    }
+  );
+
+  assert.equal(model, "claude/claude-sonnet-5");
+  assert.deepEqual(seen, ["claude/claude-sonnet-5"]);
 });
 
 test("getBestVisionModel — should exclude specified models", async () => {
